@@ -35,6 +35,7 @@ import (
 
 	// +kubebuilder:scaffold:imports
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	"github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/repository"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/controller"
 	schemeBuilder "github.com/cloudnative-pg/cloudnative-pg/internal/scheme"
@@ -200,12 +201,6 @@ func RunController(
 		return err
 	}
 
-	// Detect if we support SeccompProfile
-	if err = utils.DetectSeccompSupport(discoveryClient); err != nil {
-		setupLog.Error(err, "unable to detect SeccompProfile support")
-		return err
-	}
-
 	// Detect the available architectures
 	if err = utils.DetectAvailableArchitectures(); err != nil {
 		setupLog.Error(err, "unable to detect the available instance's architectures")
@@ -214,7 +209,6 @@ func RunController(
 
 	setupLog.Info("Kubernetes system metadata",
 		"haveSCC", utils.HaveSecurityContextConstraints(),
-		"haveSeccompProfile", utils.HaveSeccompSupport(),
 		"haveVolumeSnapshot", utils.HaveVolumeSnapshot(),
 		"availableArchitectures", utils.GetAvailableArchitectures(),
 	)
@@ -223,13 +217,36 @@ func RunController(
 		return err
 	}
 
-	if err = controller.NewClusterReconciler(mgr, discoveryClient).SetupWithManager(ctx, mgr); err != nil {
+	pluginRepository := repository.New()
+	if err := pluginRepository.RegisterUnixSocketPluginsInPath(
+		configuration.Current.PluginSocketDir,
+	); err != nil {
+		setupLog.Error(err, "Unable to load sidecar CNPG-i plugins, skipping")
+	}
+
+	if err = controller.NewClusterReconciler(
+		mgr,
+		discoveryClient,
+		pluginRepository,
+	).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
 		return err
 	}
 
-	if err = controller.NewBackupReconciler(mgr, discoveryClient).SetupWithManager(ctx, mgr); err != nil {
+	if err = controller.NewBackupReconciler(
+		mgr,
+		discoveryClient,
+		pluginRepository,
+	).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Backup")
+		return err
+	}
+
+	if err = controller.NewPluginReconciler(
+		mgr,
+		pluginRepository,
+	).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Plugin")
 		return err
 	}
 
