@@ -1,10 +1,13 @@
 # CloudNativePG
 
-**CloudNativePG** is an open source
+**CloudNativePG** is an open-source
 [operator](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)
 designed to manage [PostgreSQL](https://www.postgresql.org/) workloads on any
-supported [Kubernetes](https://kubernetes.io) cluster running in private,
-public, hybrid, or multi-cloud environments.
+supported [Kubernetes](https://kubernetes.io) cluster. It supports deployment in
+private, public, hybrid, and multi-cloud environments, thanks to
+its [distributed topology](replica_cluster.md#distributed-topology)
+feature.
+
 CloudNativePG adheres to DevOps principles and concepts such as declarative
 configuration and immutable infrastructure.
 
@@ -22,7 +25,7 @@ PostgreSQL via TCP. Additionally, web applications can take advantage of the
 native connection pooler based on PgBouncer.
 
 CloudNativePG was originally built by [EDB](https://www.enterprisedb.com), then
-released open source under Apache License 2.0 and submitted for CNCF Sandbox in April 2022.
+released open source under Apache License 2.0.
 The [source code repository is in Github](https://github.com/cloudnative-pg/cloudnative-pg).
 
 !!! Note
@@ -41,17 +44,31 @@ Please refer to the ["Supported releases"](supported_releases.md) page for detai
 ## Container images
 
 The [CloudNativePG community](https://github.com/cloudnative-pg) maintains
-container images for both the operator and the operand, that is PostgreSQL.
+container images for both the operator and PostgreSQL (the operand).
 
-The CloudNativePG operator container images are [distroless](https://github.com/GoogleContainerTools/distroless)
-and available on the [`cloudnative-pg` project's GitHub Container Registry](https://github.com/cloudnative-pg/cloudnative-pg/pkgs/container/cloudnative-pg).
+### Operator
 
-The PostgreSQL operand container images are available for all the
+The CloudNativePG operator container images are available on the
+[`cloudnative-pg` project's GitHub Container Registry](https://github.com/cloudnative-pg/cloudnative-pg/pkgs/container/cloudnative-pg)
+in three different flavors:
+
+- Debian 12 distroless
+- Red Hat UBI 9 micro (suffix `-ubi9`)
+- Red Hat UBI 8 micro (suffix `-ubi8`)
+
+Red Hat UBI images are primarily intended for OLM consumption.
+
+### Operands
+
+The PostgreSQL operand container images are available for all
 [PGDG supported versions of PostgreSQL](https://www.postgresql.org/),
-on multiple architectures, directly from the
+across multiple architectures, directly from the
 [`postgres-containers` project's GitHub Container Registry](https://github.com/cloudnative-pg/postgres-containers/pkgs/container/postgresql).
 
-Additionally, the Community provides images for the [PostGIS extension](postgis.md).
+Daily jobs ensure that critical vulnerabilities (CVEs) in the entire stack are
+promptly addressed.
+
+Additionally, the community provides images for the [PostGIS extension](postgis.md).
 
 ## Main features
 
@@ -85,7 +102,7 @@ Additionally, the Community provides images for the [PostGIS extension](postgis.
 * Online import of existing PostgreSQL databases, including major upgrades of PostgreSQL, through PostgreSQL native logical replication (imperative, via the `cnpg` plugin)
 * Fencing of an entire PostgreSQL cluster, or a subset of the instances in a declarative way
 * Hibernation of a PostgreSQL cluster in a declarative way
-* Support for Synchronous Replicas
+* Support for quorum-based and priority-based Synchronous Replication
 * Support for HA physical replication slots at cluster level
 * Synchronization of user defined physical replication slots
 * Backup from a standby
@@ -97,7 +114,9 @@ Additionally, the Community provides images for the [PostGIS extension](postgis.
 * Replica clusters for PostgreSQL distributed topologies spanning multiple
   Kubernetes clusters, enabling private, public, hybrid, and multi-cloud
   architectures with support for controlled switchover.
+  <!--
 * Delayed Replica clusters
+-->
 * Connection pooling with PgBouncer
 * Support for node affinity via `nodeSelector`
 * Native customizable exporter of user defined metrics for Prometheus through the `metrics` port (9187)

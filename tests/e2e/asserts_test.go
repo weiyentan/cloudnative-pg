@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/thoas/go-funk"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -228,7 +229,37 @@ func AssertClusterIsReady(namespace string, clusterName string, timeout int, env
 				nodes, _ := env.DescribeKubernetesNodes()
 				return fmt.Sprintf("CLUSTER STATE\n%s\n\nK8S NODES\n%s",
 					cluster, nodes)
-			})
+			},
+		)
+
+		if cluster.Spec.Instances != 1 {
+			Eventually(func(g Gomega) {
+				podList, err := env.GetClusterPodList(namespace, clusterName)
+				g.Expect(err).ToNot(HaveOccurred(), "cannot get cluster pod list")
+
+				primaryPod, err := env.GetClusterPrimary(namespace, clusterName)
+				g.Expect(err).ToNot(HaveOccurred(), "cannot find cluster primary pod")
+
+				replicaNamesList := make([]string, 0, len(podList.Items)-1)
+				for _, pod := range podList.Items {
+					if pod.Name != primaryPod.Name {
+						replicaNamesList = append(replicaNamesList, pq.QuoteLiteral(pod.Name))
+					}
+				}
+				replicaNamesString := strings.Join(replicaNamesList, ",")
+				out, _, err := env.ExecQueryInInstancePod(
+					testsUtils.PodLocator{
+						Namespace: namespace,
+						PodName:   primaryPod.Name,
+					},
+					"postgres",
+					fmt.Sprintf("SELECT COUNT(*) FROM pg_stat_replication WHERE application_name IN (%s)",
+						replicaNamesString),
+				)
+				g.Expect(err).ToNot(HaveOccurred(), "cannot extract the list of streaming replicas")
+				g.Expect(strings.TrimSpace(out)).To(BeEquivalentTo(fmt.Sprintf("%d", len(replicaNamesList))))
+			}, timeout, 2).Should(Succeed(), "Replicas are attached via streaming connection")
+		}
 		GinkgoWriter.Println("Cluster ready, took", time.Since(start))
 	})
 }
@@ -1017,6 +1048,18 @@ func AssertDetachReplicaModeCluster(
 	var primaryReplicaCluster *corev1.Pod
 	replicaCommandTimeout := time.Second * 10
 
+	var referenceTime time.Time
+	By("taking the reference time before the detaching", func() {
+		Eventually(func(g Gomega) {
+			referenceCondition, err := testsUtils.GetConditionsInClusterStatus(namespace, replicaClusterName, env,
+				apiv1.ConditionClusterReady)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(referenceCondition.Status).To(BeEquivalentTo(corev1.ConditionTrue))
+			g.Expect(referenceCondition).ToNot(BeNil())
+			referenceTime = referenceCondition.LastTransitionTime.Time
+		}, 60, 5).Should(Succeed())
+	})
+
 	By("disabling the replica mode", func() {
 		Eventually(func(g Gomega) {
 			_, _, err := testsUtils.RunUnchecked(fmt.Sprintf(
@@ -1025,6 +1068,20 @@ func AssertDetachReplicaModeCluster(
 				replicaClusterName, namespace))
 			g.Expect(err).ToNot(HaveOccurred())
 		}, 60, 5).Should(Succeed())
+	})
+
+	By("ensuring the replica cluster got promoted and restarted", func() {
+		Eventually(func(g Gomega) {
+			cluster, err := env.GetCluster(namespace, replicaClusterName)
+			g.Expect(err).ToNot(HaveOccurred())
+			condition, err := testsUtils.GetConditionsInClusterStatus(namespace, cluster.Name, env,
+				apiv1.ConditionClusterReady)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(condition).ToNot(BeNil())
+			g.Expect(condition.Status).To(BeEquivalentTo(corev1.ConditionTrue))
+			g.Expect(condition.LastTransitionTime.Time).To(BeTemporally(">", referenceTime))
+		}).WithTimeout(60 * time.Second).Should(Succeed())
+		AssertClusterIsReady(namespace, replicaClusterName, testTimeouts[testsUtils.ClusterIsReady], env)
 	})
 
 	By("verifying write operation on the replica cluster primary pod", func() {

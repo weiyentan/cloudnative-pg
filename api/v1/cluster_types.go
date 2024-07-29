@@ -646,9 +646,9 @@ func (st *ServiceAccountTemplate) MergeMetadata(sa *corev1.ServiceAccount) {
 // PodTopologyLabels represent the topology of a Pod. map[labelName]labelValue
 type PodTopologyLabels map[string]string
 
-// matchesTopology checks if the two topologies have
+// MatchesTopology checks if the two topologies have
 // the same label values (labels are specified in SyncReplicaElectionConstraints.NodeLabelsAntiAffinity)
-func (topologyLabels PodTopologyLabels) matchesTopology(instanceTopology PodTopologyLabels) bool {
+func (topologyLabels PodTopologyLabels) MatchesTopology(instanceTopology PodTopologyLabels) bool {
 	log.Debug("matching topology", "main", topologyLabels, "second", instanceTopology)
 	for mainLabelName, mainLabelValue := range topologyLabels {
 		if mainLabelValue != instanceTopology[mainLabelName] {
@@ -1382,11 +1382,68 @@ const (
 	DefaultStartupDelay = 3600
 )
 
+// SynchronousReplicaConfigurationMethod configures whether to use
+// quorum based replication or a priority list
+type SynchronousReplicaConfigurationMethod string
+
+const (
+	// SynchronousReplicaConfigurationMethodFirst means a priority list should be used
+	SynchronousReplicaConfigurationMethodFirst = SynchronousReplicaConfigurationMethod("first")
+
+	// SynchronousReplicaConfigurationMethodAny means that quorum based replication should be used
+	SynchronousReplicaConfigurationMethodAny = SynchronousReplicaConfigurationMethod("any")
+)
+
+// ToPostgreSQLConfigurationKeyword returns the contained value as a valid PostgreSQL parameter to be injected
+// in the 'synchronous_standby_names' field
+func (s SynchronousReplicaConfigurationMethod) ToPostgreSQLConfigurationKeyword() string {
+	return strings.ToUpper(string(s))
+}
+
+// SynchronousReplicaConfiguration contains the configuration of the
+// PostgreSQL synchronous replication feature.
+// Important: at this moment, also `.spec.minSyncReplicas` and `.spec.maxSyncReplicas`
+// need to be considered.
+type SynchronousReplicaConfiguration struct {
+	// Method to select synchronous replication standbys from the listed
+	// servers, accepting 'any' (quorum-based synchronous replication) or
+	// 'first' (priority-based synchronous replication) as values.
+	// +kubebuilder:validation:Enum=any;first
+	Method SynchronousReplicaConfigurationMethod `json:"method"`
+
+	// Specifies the number of synchronous standby servers that
+	// transactions must wait for responses from.
+	// +kubebuilder:validation:XValidation:rule="self > 0",message="The number of synchronous replicas should be greater than zero"
+	Number int `json:"number"`
+
+	// Specifies the maximum number of local cluster pods that can be
+	// automatically included in the `synchronous_standby_names` option in
+	// PostgreSQL.
+	// +optional
+	MaxStandbyNamesFromCluster *int `json:"maxStandbyNamesFromCluster,omitempty"`
+
+	// A user-defined list of application names to be added to
+	// `synchronous_standby_names` before local cluster pods (the order is
+	// only useful for priority-based synchronous replication).
+	// +optional
+	StandbyNamesPre []string `json:"standbyNamesPre,omitempty"`
+
+	// A user-defined list of application names to be added to
+	// `synchronous_standby_names` after local cluster pods (the order is
+	// only useful for priority-based synchronous replication).
+	// +optional
+	StandbyNamesPost []string `json:"standbyNamesPost,omitempty"`
+}
+
 // PostgresConfiguration defines the PostgreSQL configuration
 type PostgresConfiguration struct {
 	// PostgreSQL configuration options (postgresql.conf)
 	// +optional
 	Parameters map[string]string `json:"parameters,omitempty"`
+
+	// Configuration of the PostgreSQL synchronous replication feature
+	// +optional
+	Synchronous *SynchronousReplicaConfiguration `json:"synchronous,omitempty"`
 
 	// PostgreSQL Host Based Authentication rules (lines to be appended
 	// to the pg_hba.conf file)
@@ -1626,20 +1683,20 @@ type BootstrapInitDB struct {
 	// +optional
 	WalSegmentSize int `json:"walSegmentSize,omitempty"`
 
-	// List of SQL queries to be executed as a superuser immediately
-	// after the cluster has been created - to be used with extreme care
+	// List of SQL queries to be executed as a superuser in the `postgres`
+	// database right after the cluster has been created - to be used with extreme care
 	// (by default empty)
 	// +optional
 	PostInitSQL []string `json:"postInitSQL,omitempty"`
 
 	// List of SQL queries to be executed as a superuser in the application
-	// database right after is created - to be used with extreme care
+	// database right after the cluster has been created - to be used with extreme care
 	// (by default empty)
 	// +optional
 	PostInitApplicationSQL []string `json:"postInitApplicationSQL,omitempty"`
 
 	// List of SQL queries to be executed as a superuser in the `template1`
-	// after the cluster has been created - to be used with extreme care
+	// database right after the cluster has been created - to be used with extreme care
 	// (by default empty)
 	// +optional
 	PostInitTemplateSQL []string `json:"postInitTemplateSQL,omitempty"`
@@ -1649,13 +1706,35 @@ type BootstrapInitDB struct {
 	// +optional
 	Import *Import `json:"import,omitempty"`
 
-	// PostInitApplicationSQLRefs points references to ConfigMaps or Secrets which
-	// contain SQL files, the general implementation order to these references is
-	// from all Secrets to all ConfigMaps, and inside Secrets or ConfigMaps,
-	// the implementation order is same as the order of each array
+	// List of references to ConfigMaps or Secrets containing SQL files
+	// to be executed as a superuser in the application database right after
+	// the cluster has been created. The references are processed in a specific order:
+	// first, all Secrets are processed, followed by all ConfigMaps.
+	// Within each group, the processing order follows the sequence specified
+	// in their respective arrays.
 	// (by default empty)
 	// +optional
-	PostInitApplicationSQLRefs *PostInitApplicationSQLRefs `json:"postInitApplicationSQLRefs,omitempty"`
+	PostInitApplicationSQLRefs *SQLRefs `json:"postInitApplicationSQLRefs,omitempty"`
+
+	// List of references to ConfigMaps or Secrets containing SQL files
+	// to be executed as a superuser in the `template1` database right after
+	// the cluster has been created. The references are processed in a specific order:
+	// first, all Secrets are processed, followed by all ConfigMaps.
+	// Within each group, the processing order follows the sequence specified
+	// in their respective arrays.
+	// (by default empty)
+	// +optional
+	PostInitTemplateSQLRefs *SQLRefs `json:"postInitTemplateSQLRefs,omitempty"`
+
+	// List of references to ConfigMaps or Secrets containing SQL files
+	// to be executed as a superuser in the `postgres` database right after
+	// the cluster has been created. The references are processed in a specific order:
+	// first, all Secrets are processed, followed by all ConfigMaps.
+	// Within each group, the processing order follows the sequence specified
+	// in their respective arrays.
+	// (by default empty)
+	// +optional
+	PostInitSQLRefs *SQLRefs `json:"postInitSQLRefs,omitempty"`
 }
 
 // SnapshotType is a type of allowed import
@@ -1703,11 +1782,12 @@ type ImportSource struct {
 	ExternalCluster string `json:"externalCluster"`
 }
 
-// PostInitApplicationSQLRefs points references to ConfigMaps or Secrets which
-// contain SQL files, the general implementation order to these references is
-// from all Secrets to all ConfigMaps, and inside Secrets or ConfigMaps,
-// the implementation order is same as the order of each array
-type PostInitApplicationSQLRefs struct {
+// SQLRefs holds references to ConfigMaps or Secrets
+// containing SQL files. The references are processed in a specific order:
+// first, all Secrets are processed, followed by all ConfigMaps.
+// Within each group, the processing order follows the sequence specified
+// in their respective arrays.
+type SQLRefs struct {
 	// SecretRefs holds a list of references to Secrets
 	// +optional
 	SecretRefs []SecretKeySelector `json:"secretRefs,omitempty"`
@@ -1715,6 +1795,16 @@ type PostInitApplicationSQLRefs struct {
 	// ConfigMapRefs holds a list of references to ConfigMaps
 	// +optional
 	ConfigMapRefs []ConfigMapKeySelector `json:"configMapRefs,omitempty"`
+}
+
+// HasElements returns true if it contains any Reference
+func (s *SQLRefs) HasElements() bool {
+	if s == nil {
+		return false
+	}
+
+	return len(s.ConfigMapRefs) != 0 ||
+		len(s.SecretRefs) != 0
 }
 
 // BootstrapRecovery contains the configuration required to restore
@@ -2193,10 +2283,9 @@ type WalBackupConfiguration struct {
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxParallel int `json:"maxParallel,omitempty"`
-	// AdditionalCommandArgs represents additional arguments that can be appended
-	// to the 'barman-cloud-wal-archive' command-line invocation. These arguments
-	// provide flexibility to customize the backup process further according to
-	// specific requirements or configurations.
+	// Additional arguments that can be appended to the 'barman-cloud-wal-archive'
+	// command-line invocation. These arguments provide flexibility to customize
+	// the WAL archive process further, according to specific requirements or configurations.
 	//
 	// Example:
 	// In a scenario where specialized backup options are required, such as setting
@@ -2207,7 +2296,22 @@ type WalBackupConfiguration struct {
 	// It's essential to ensure that the provided arguments are valid and supported
 	// by the 'barman-cloud-wal-archive' command, to avoid potential errors or unintended
 	// behavior during execution.
-	AdditionalCommandArgs []string `json:"additionalCommandArgs,omitempty"`
+	ArchiveAdditionalCommandArgs []string `json:"archiveAdditionalCommandArgs,omitempty"`
+
+	// Additional arguments that can be appended to the 'barman-cloud-wal-restore'
+	// command-line invocation. These arguments provide flexibility to customize
+	// the WAL restore process further, according to specific requirements or configurations.
+	//
+	// Example:
+	// In a scenario where specialized backup options are required, such as setting
+	// a specific timeout or defining custom behavior, users can use this field
+	// to specify additional command arguments.
+	//
+	// Note:
+	// It's essential to ensure that the provided arguments are valid and supported
+	// by the 'barman-cloud-wal-restore' command, to avoid potential errors or unintended
+	// behavior during execution.
+	RestoreAdditionalCommandArgs []string `json:"restoreAdditionalCommandArgs,omitempty"`
 }
 
 // DataBackupConfiguration is the configuration of the backup of
@@ -2356,6 +2460,11 @@ type MonitoringConfiguration struct {
 	// +optional
 	EnablePodMonitor bool `json:"enablePodMonitor,omitempty"`
 
+	// Configure TLS communication for the metrics endpoint.
+	// Changing tls.enabled option will force a rollout of all instances.
+	// +optional
+	TLSConfig *ClusterMonitoringTLSConfiguration `json:"tls,omitempty"`
+
 	// The list of metric relabelings for the `PodMonitor`. Applied to samples before ingestion.
 	// +optional
 	PodMonitorMetricRelabelConfigs []monitoringv1.RelabelConfig `json:"podMonitorMetricRelabelings,omitempty"`
@@ -2368,6 +2477,16 @@ type MonitoringConfiguration struct {
 // AreDefaultQueriesDisabled checks whether default monitoring queries should be disabled
 func (m *MonitoringConfiguration) AreDefaultQueriesDisabled() bool {
 	return m != nil && m.DisableDefaultQueries != nil && *m.DisableDefaultQueries
+}
+
+// ClusterMonitoringTLSConfiguration is the type containing the TLS configuration
+// for the cluster's monitoring
+type ClusterMonitoringTLSConfiguration struct {
+	// Enable TLS for the monitoring endpoint.
+	// Changing this option will force a rollout of all instances.
+	// +kubebuilder:default:=false
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 // ExternalCluster represents the connection parameters to an
@@ -2418,12 +2537,20 @@ func (cfg *DataBackupConfiguration) AppendAdditionalCommandArgs(options []string
 	return appendAdditionalCommandArgs(cfg.AdditionalCommandArgs, options)
 }
 
-// AppendAdditionalCommandArgs adds custom arguments as barman-cloud-wal-archive command-line options
-func (cfg *WalBackupConfiguration) AppendAdditionalCommandArgs(options []string) []string {
-	if cfg == nil || len(cfg.AdditionalCommandArgs) == 0 {
+// AppendArchiveAdditionalCommandArgs adds custom arguments as barman-cloud-wal-archive command-line options
+func (cfg *WalBackupConfiguration) AppendArchiveAdditionalCommandArgs(options []string) []string {
+	if cfg == nil || len(cfg.ArchiveAdditionalCommandArgs) == 0 {
 		return options
 	}
-	return appendAdditionalCommandArgs(cfg.AdditionalCommandArgs, options)
+	return appendAdditionalCommandArgs(cfg.ArchiveAdditionalCommandArgs, options)
+}
+
+// AppendRestoreAdditionalCommandArgs adds custom arguments as barman-cloud-wal-restore command-line options
+func (cfg *WalBackupConfiguration) AppendRestoreAdditionalCommandArgs(options []string) []string {
+	if cfg == nil || len(cfg.RestoreAdditionalCommandArgs) == 0 {
+		return options
+	}
+	return appendAdditionalCommandArgs(cfg.RestoreAdditionalCommandArgs, options)
 }
 
 func appendAdditionalCommandArgs(additionalCommandArgs []string, options []string) []string {
@@ -3226,8 +3353,8 @@ func (cluster *Cluster) ShouldCreateApplicationDatabase() bool {
 }
 
 // ShouldInitDBRunPostInitApplicationSQLRefs returns true if for this cluster,
-// during the bootstrap phase using initDB, we need to run post application
-// SQL files from provided references.
+// during the bootstrap phase using initDB, we need to run post init SQL files
+// for the application database from provided references.
 func (cluster *Cluster) ShouldInitDBRunPostInitApplicationSQLRefs() bool {
 	if cluster.Spec.Bootstrap == nil {
 		return false
@@ -3237,12 +3364,37 @@ func (cluster *Cluster) ShouldInitDBRunPostInitApplicationSQLRefs() bool {
 		return false
 	}
 
-	if cluster.Spec.Bootstrap.InitDB.PostInitApplicationSQLRefs == nil {
+	return cluster.Spec.Bootstrap.InitDB.PostInitApplicationSQLRefs.HasElements()
+}
+
+// ShouldInitDBRunPostInitTemplateSQLRefs returns true if for this cluster,
+// during the bootstrap phase using initDB, we need to run post init SQL files
+// for the `template1` database from provided references.
+func (cluster *Cluster) ShouldInitDBRunPostInitTemplateSQLRefs() bool {
+	if cluster.Spec.Bootstrap == nil {
 		return false
 	}
 
-	return (len(cluster.Spec.Bootstrap.InitDB.PostInitApplicationSQLRefs.ConfigMapRefs) != 0 ||
-		len(cluster.Spec.Bootstrap.InitDB.PostInitApplicationSQLRefs.SecretRefs) != 0)
+	if cluster.Spec.Bootstrap.InitDB == nil {
+		return false
+	}
+
+	return cluster.Spec.Bootstrap.InitDB.PostInitTemplateSQLRefs.HasElements()
+}
+
+// ShouldInitDBRunPostInitSQLRefs returns true if for this cluster,
+// during the bootstrap phase using initDB, we need to run post init SQL files
+// for the `postgres` database from provided references.
+func (cluster *Cluster) ShouldInitDBRunPostInitSQLRefs() bool {
+	if cluster.Spec.Bootstrap == nil {
+		return false
+	}
+
+	if cluster.Spec.Bootstrap.InitDB == nil {
+		return false
+	}
+
+	return cluster.Spec.Bootstrap.InitDB.PostInitSQLRefs.HasElements()
 }
 
 // ShouldInitDBCreateApplicationDatabase returns true if the application database needs to be created during initdb
@@ -3503,6 +3655,15 @@ func (cluster *Cluster) UsesConfigMap(config string) (ok bool) {
 func (cluster *Cluster) IsPodMonitorEnabled() bool {
 	if cluster.Spec.Monitoring != nil {
 		return cluster.Spec.Monitoring.EnablePodMonitor
+	}
+
+	return false
+}
+
+// IsMetricsTLSEnabled checks if the metrics endpoint should use TLS
+func (cluster *Cluster) IsMetricsTLSEnabled() bool {
+	if cluster.Spec.Monitoring != nil && cluster.Spec.Monitoring.TLSConfig != nil {
+		return cluster.Spec.Monitoring.TLSConfig.Enabled
 	}
 
 	return false

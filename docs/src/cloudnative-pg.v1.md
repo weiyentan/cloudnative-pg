@@ -1175,8 +1175,8 @@ option for initdb (default: empty, resulting in PostgreSQL default: 16MB)</p>
 <i>[]string</i>
 </td>
 <td>
-   <p>List of SQL queries to be executed as a superuser immediately
-after the cluster has been created - to be used with extreme care
+   <p>List of SQL queries to be executed as a superuser in the <code>postgres</code>
+database right after the cluster has been created - to be used with extreme care
 (by default empty)</p>
 </td>
 </tr>
@@ -1185,7 +1185,7 @@ after the cluster has been created - to be used with extreme care
 </td>
 <td>
    <p>List of SQL queries to be executed as a superuser in the application
-database right after is created - to be used with extreme care
+database right after the cluster has been created - to be used with extreme care
 (by default empty)</p>
 </td>
 </tr>
@@ -1194,7 +1194,7 @@ database right after is created - to be used with extreme care
 </td>
 <td>
    <p>List of SQL queries to be executed as a superuser in the <code>template1</code>
-after the cluster has been created - to be used with extreme care
+database right after the cluster has been created - to be used with extreme care
 (by default empty)</p>
 </td>
 </tr>
@@ -1207,13 +1207,41 @@ instance using logical backup (<code>pg_dump</code> and <code>pg_restore</code>)
 </td>
 </tr>
 <tr><td><code>postInitApplicationSQLRefs</code><br/>
-<a href="#postgresql-cnpg-io-v1-PostInitApplicationSQLRefs"><i>PostInitApplicationSQLRefs</i></a>
+<a href="#postgresql-cnpg-io-v1-SQLRefs"><i>SQLRefs</i></a>
 </td>
 <td>
-   <p>PostInitApplicationSQLRefs points references to ConfigMaps or Secrets which
-contain SQL files, the general implementation order to these references is
-from all Secrets to all ConfigMaps, and inside Secrets or ConfigMaps,
-the implementation order is same as the order of each array
+   <p>List of references to ConfigMaps or Secrets containing SQL files
+to be executed as a superuser in the application database right after
+the cluster has been created. The references are processed in a specific order:
+first, all Secrets are processed, followed by all ConfigMaps.
+Within each group, the processing order follows the sequence specified
+in their respective arrays.
+(by default empty)</p>
+</td>
+</tr>
+<tr><td><code>postInitTemplateSQLRefs</code><br/>
+<a href="#postgresql-cnpg-io-v1-SQLRefs"><i>SQLRefs</i></a>
+</td>
+<td>
+   <p>List of references to ConfigMaps or Secrets containing SQL files
+to be executed as a superuser in the <code>template1</code> database right after
+the cluster has been created. The references are processed in a specific order:
+first, all Secrets are processed, followed by all ConfigMaps.
+Within each group, the processing order follows the sequence specified
+in their respective arrays.
+(by default empty)</p>
+</td>
+</tr>
+<tr><td><code>postInitSQLRefs</code><br/>
+<a href="#postgresql-cnpg-io-v1-SQLRefs"><i>SQLRefs</i></a>
+</td>
+<td>
+   <p>List of references to ConfigMaps or Secrets containing SQL files
+to be executed as a superuser in the <code>postgres</code> database right after
+the cluster has been created. The references are processed in a specific order:
+first, all Secrets are processed, followed by all ConfigMaps.
+Within each group, the processing order follows the sequence specified
+in their respective arrays.
 (by default empty)</p>
 </td>
 </tr>
@@ -1502,6 +1530,32 @@ this can be omitted.<!-- raw HTML omitted --></li>
 </td>
 <td>
    <p>Expiration dates for all certificates.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## ClusterMonitoringTLSConfiguration     {#postgresql-cnpg-io-v1-ClusterMonitoringTLSConfiguration}
+
+
+**Appears in:**
+
+- [MonitoringConfiguration](#postgresql-cnpg-io-v1-MonitoringConfiguration)
+
+
+<p>ClusterMonitoringTLSConfiguration is the type containing the TLS configuration
+for the cluster's monitoring</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>enabled</code><br/>
+<i>bool</i>
+</td>
+<td>
+   <p>Enable TLS for the monitoring endpoint.
+Changing this option will force a rollout of all instances.</p>
 </td>
 </tr>
 </tbody>
@@ -2300,7 +2354,7 @@ WAL file, and Time of latest checkpoint</p>
 
 - [MonitoringConfiguration](#postgresql-cnpg-io-v1-MonitoringConfiguration)
 
-- [PostInitApplicationSQLRefs](#postgresql-cnpg-io-v1-PostInitApplicationSQLRefs)
+- [SQLRefs](#postgresql-cnpg-io-v1-SQLRefs)
 
 
 <p>ConfigMapKeySelector contains enough information to let you locate
@@ -3338,6 +3392,14 @@ Default: false.</p>
    <p>Enable or disable the <code>PodMonitor</code></p>
 </td>
 </tr>
+<tr><td><code>tls</code><br/>
+<a href="#postgresql-cnpg-io-v1-ClusterMonitoringTLSConfiguration"><i>ClusterMonitoringTLSConfiguration</i></a>
+</td>
+<td>
+   <p>Configure TLS communication for the metrics endpoint.
+Changing tls.enabled option will force a rollout of all instances.</p>
+</td>
+</tr>
 <tr><td><code>podMonitorMetricRelabelings</code><br/>
 <a href="https://pkg.go.dev/github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1#RelabelConfig"><i>[]github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1.RelabelConfig</i></a>
 </td>
@@ -3948,40 +4010,6 @@ we are targeting. Allowed values are <code>rw</code> and <code>ro</code>.</p>
 
 
 
-## PostInitApplicationSQLRefs     {#postgresql-cnpg-io-v1-PostInitApplicationSQLRefs}
-
-
-**Appears in:**
-
-- [BootstrapInitDB](#postgresql-cnpg-io-v1-BootstrapInitDB)
-
-
-<p>PostInitApplicationSQLRefs points references to ConfigMaps or Secrets which
-contain SQL files, the general implementation order to these references is
-from all Secrets to all ConfigMaps, and inside Secrets or ConfigMaps,
-the implementation order is same as the order of each array</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-<tr><td><code>secretRefs</code><br/>
-<a href="#postgresql-cnpg-io-v1-SecretKeySelector"><i>[]SecretKeySelector</i></a>
-</td>
-<td>
-   <p>SecretRefs holds a list of references to Secrets</p>
-</td>
-</tr>
-<tr><td><code>configMapRefs</code><br/>
-<a href="#postgresql-cnpg-io-v1-ConfigMapKeySelector"><i>[]ConfigMapKeySelector</i></a>
-</td>
-<td>
-   <p>ConfigMapRefs holds a list of references to ConfigMaps</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## PostgresConfiguration     {#postgresql-cnpg-io-v1-PostgresConfiguration}
 
 
@@ -4001,6 +4029,13 @@ the implementation order is same as the order of each array</p>
 </td>
 <td>
    <p>PostgreSQL configuration options (postgresql.conf)</p>
+</td>
+</tr>
+<tr><td><code>synchronous</code><br/>
+<a href="#postgresql-cnpg-io-v1-SynchronousReplicaConfiguration"><i>SynchronousReplicaConfiguration</i></a>
+</td>
+<td>
+   <p>Configuration of the PostgreSQL synchronous replication feature</p>
 </td>
 </tr>
 <tr><td><code>pg_hba</code><br/>
@@ -4526,6 +4561,41 @@ files to S3. It can be provided in two alternative ways:</p>
 </tbody>
 </table>
 
+## SQLRefs     {#postgresql-cnpg-io-v1-SQLRefs}
+
+
+**Appears in:**
+
+- [BootstrapInitDB](#postgresql-cnpg-io-v1-BootstrapInitDB)
+
+
+<p>SQLRefs holds references to ConfigMaps or Secrets
+containing SQL files. The references are processed in a specific order:
+first, all Secrets are processed, followed by all ConfigMaps.
+Within each group, the processing order follows the sequence specified
+in their respective arrays.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>secretRefs</code><br/>
+<a href="#postgresql-cnpg-io-v1-SecretKeySelector"><i>[]SecretKeySelector</i></a>
+</td>
+<td>
+   <p>SecretRefs holds a list of references to Secrets</p>
+</td>
+</tr>
+<tr><td><code>configMapRefs</code><br/>
+<a href="#postgresql-cnpg-io-v1-ConfigMapKeySelector"><i>[]ConfigMapKeySelector</i></a>
+</td>
+<td>
+   <p>ConfigMapRefs holds a list of references to ConfigMaps</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## ScheduledBackupSpec     {#postgresql-cnpg-io-v1-ScheduledBackupSpec}
 
 
@@ -4598,8 +4668,8 @@ standby, if available.</p>
 <a href="#postgresql-cnpg-io-v1-BackupMethod"><i>BackupMethod</i></a>
 </td>
 <td>
-   <p>The backup method to be used, possible options are <code>barmanObjectStore</code>
-and <code>volumeSnapshot</code>. Defaults to: <code>barmanObjectStore</code>.</p>
+   <p>The backup method to be used, possible options are <code>barmanObjectStore</code>,
+<code>volumeSnapshot</code> or <code>plugin</code>. Defaults to: <code>barmanObjectStore</code>.</p>
 </td>
 </tr>
 <tr><td><code>pluginConfiguration</code><br/>
@@ -4684,9 +4754,9 @@ Overrides the default settings specified in the cluster '.backup.volumeSnapshot.
 
 - [MonitoringConfiguration](#postgresql-cnpg-io-v1-MonitoringConfiguration)
 
-- [PostInitApplicationSQLRefs](#postgresql-cnpg-io-v1-PostInitApplicationSQLRefs)
-
 - [S3Credentials](#postgresql-cnpg-io-v1-S3Credentials)
+
+- [SQLRefs](#postgresql-cnpg-io-v1-SQLRefs)
 
 
 <p>SecretKeySelector contains enough information to let you locate
@@ -5112,6 +5182,85 @@ physical replication slots</p>
 </tbody>
 </table>
 
+## SynchronousReplicaConfiguration     {#postgresql-cnpg-io-v1-SynchronousReplicaConfiguration}
+
+
+**Appears in:**
+
+- [PostgresConfiguration](#postgresql-cnpg-io-v1-PostgresConfiguration)
+
+
+<p>SynchronousReplicaConfiguration contains the configuration of the
+PostgreSQL synchronous replication feature.
+Important: at this moment, also <code>.spec.minSyncReplicas</code> and <code>.spec.maxSyncReplicas</code>
+need to be considered.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>method</code> <B>[Required]</B><br/>
+<a href="#postgresql-cnpg-io-v1-SynchronousReplicaConfigurationMethod"><i>SynchronousReplicaConfigurationMethod</i></a>
+</td>
+<td>
+   <p>Method to select synchronous replication standbys from the listed
+servers, accepting 'any' (quorum-based synchronous replication) or
+'first' (priority-based synchronous replication) as values.</p>
+</td>
+</tr>
+<tr><td><code>number</code> <B>[Required]</B><br/>
+<i>int</i>
+</td>
+<td>
+   <p>Specifies the number of synchronous standby servers that
+transactions must wait for responses from.</p>
+</td>
+</tr>
+<tr><td><code>maxStandbyNamesFromCluster</code><br/>
+<i>int</i>
+</td>
+<td>
+   <p>Specifies the maximum number of local cluster pods that can be
+automatically included in the <code>synchronous_standby_names</code> option in
+PostgreSQL.</p>
+</td>
+</tr>
+<tr><td><code>standbyNamesPre</code><br/>
+<i>[]string</i>
+</td>
+<td>
+   <p>A user-defined list of application names to be added to
+<code>synchronous_standby_names</code> before local cluster pods (the order is
+only useful for priority-based synchronous replication).</p>
+</td>
+</tr>
+<tr><td><code>standbyNamesPost</code><br/>
+<i>[]string</i>
+</td>
+<td>
+   <p>A user-defined list of application names to be added to
+<code>synchronous_standby_names</code> after local cluster pods (the order is
+only useful for priority-based synchronous replication).</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## SynchronousReplicaConfigurationMethod     {#postgresql-cnpg-io-v1-SynchronousReplicaConfigurationMethod}
+
+(Alias of `string`)
+
+**Appears in:**
+
+- [SynchronousReplicaConfiguration](#postgresql-cnpg-io-v1-SynchronousReplicaConfiguration)
+
+
+<p>SynchronousReplicaConfigurationMethod configures whether to use
+quorum based replication or a priority list</p>
+
+
+
+
 ## TablespaceConfiguration     {#postgresql-cnpg-io-v1-TablespaceConfiguration}
 
 
@@ -5384,14 +5533,13 @@ will be processed one at a time. It accepts a positive integer as a
 value - with 1 being the minimum accepted value.</p>
 </td>
 </tr>
-<tr><td><code>additionalCommandArgs</code> <B>[Required]</B><br/>
+<tr><td><code>archiveAdditionalCommandArgs</code> <B>[Required]</B><br/>
 <i>[]string</i>
 </td>
 <td>
-   <p>AdditionalCommandArgs represents additional arguments that can be appended
-to the 'barman-cloud-wal-archive' command-line invocation. These arguments
-provide flexibility to customize the backup process further according to
-specific requirements or configurations.</p>
+   <p>Additional arguments that can be appended to the 'barman-cloud-wal-archive'
+command-line invocation. These arguments provide flexibility to customize
+the WAL archive process further, according to specific requirements or configurations.</p>
 <p>Example:
 In a scenario where specialized backup options are required, such as setting
 a specific timeout or defining custom behavior, users can use this field
@@ -5399,6 +5547,23 @@ to specify additional command arguments.</p>
 <p>Note:
 It's essential to ensure that the provided arguments are valid and supported
 by the 'barman-cloud-wal-archive' command, to avoid potential errors or unintended
+behavior during execution.</p>
+</td>
+</tr>
+<tr><td><code>restoreAdditionalCommandArgs</code> <B>[Required]</B><br/>
+<i>[]string</i>
+</td>
+<td>
+   <p>Additional arguments that can be appended to the 'barman-cloud-wal-restore'
+command-line invocation. These arguments provide flexibility to customize
+the WAL restore process further, according to specific requirements or configurations.</p>
+<p>Example:
+In a scenario where specialized backup options are required, such as setting
+a specific timeout or defining custom behavior, users can use this field
+to specify additional command arguments.</p>
+<p>Note:
+It's essential to ensure that the provided arguments are valid and supported
+by the 'barman-cloud-wal-restore' command, to avoid potential errors or unintended
 behavior during execution.</p>
 </td>
 </tr>
